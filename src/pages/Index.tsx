@@ -15,6 +15,8 @@ const Index = () => {
   const [activeMode, setActiveMode] = useState<'voice' | 'web' | 'image' | 'text'>('voice');
   const [isListening, setIsListening] = useState(false);
   const [currentContent, setCurrentContent] = useState('');
+  const [quickSearchQuery, setQuickSearchQuery] = useState('');
+  const [lastResponse, setLastResponse] = useState('');
   const { toast } = useToast();
 
   const speakText = (text: string) => {
@@ -26,6 +28,8 @@ const Index = () => {
       utterance.volume = 1;
       window.speechSynthesis.speak(utterance);
     }
+    // Also update the text display
+    setLastResponse(text);
   };
 
   const announceMode = (mode: string) => {
@@ -51,6 +55,44 @@ const Index = () => {
     toast({
       title: `${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode`,
       description: `Switched to ${mode} mode`,
+    });
+  };
+
+  const handleEmergencyStop = () => {
+    window.speechSynthesis.cancel();
+    setIsListening(false);
+    const message = 'All audio output has been stopped. BlindAssist is ready for your next command.';
+    setLastResponse(message);
+    toast({
+      title: 'Emergency Stop',
+      description: 'All audio stopped',
+    });
+  };
+
+  const handleQuickSearch = () => {
+    if (!quickSearchQuery.trim()) {
+      const message = 'Please enter a search query first.';
+      speakText(message);
+      return;
+    }
+
+    setActiveMode('web');
+    const message = `Switching to web navigation mode and searching for ${quickSearchQuery}. Please wait while I find relevant information.`;
+    speakText(message);
+    
+    toast({
+      title: 'Quick Search',
+      description: `Searching for "${quickSearchQuery}"`,
+    });
+  };
+
+  const handleHelpAndCommands = () => {
+    const helpMessage = `BlindAssist Help: You can use these voice commands: Say "hello" for greeting, "help" for assistance, "search for" followed by your topic, "stop" to halt audio, or "read this page" for content analysis. You can also use the mode buttons to switch between voice control, web navigation, image description, and text analysis. Press Tab to navigate between elements, Enter to activate buttons, and Escape to cancel operations.`;
+    speakText(helpMessage);
+    
+    toast({
+      title: 'Help & Commands',
+      description: 'Voice commands and navigation tips announced',
     });
   };
 
@@ -154,11 +196,45 @@ const Index = () => {
           </Card>
         </section>
 
+        {/* Last Response Display */}
+        {lastResponse && (
+          <section className="mb-8">
+            <Card className="bg-slate-700 border-cyan-500/50">
+              <CardHeader>
+                <CardTitle className="text-cyan-300">Last Response</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-white leading-relaxed">{lastResponse}</p>
+                <Button
+                  onClick={() => speakText(lastResponse)}
+                  variant="outline"
+                  className="mt-4 border-cyan-500/50 text-cyan-300 hover:bg-cyan-600 hover:text-white"
+                  aria-label="Repeat last response"
+                >
+                  <Volume2 className="w-4 h-4 mr-2" />
+                  Repeat
+                </Button>
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
         {/* Quick Actions */}
         <section>
           <h2 className="text-xl font-semibold mb-4 text-cyan-300">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-slate-800 border-cyan-500/30 hover:border-cyan-400 transition-colors cursor-pointer">
+            <Card 
+              className="bg-slate-800 border-cyan-500/30 hover:border-cyan-400 transition-colors cursor-pointer"
+              onClick={handleEmergencyStop}
+              role="button"
+              tabIndex={0}
+              aria-label="Emergency stop all audio"
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  handleEmergencyStop();
+                }
+              }}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center space-x-3">
                   <Volume2 className="w-6 h-6 text-cyan-400" />
@@ -170,19 +246,52 @@ const Index = () => {
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800 border-cyan-500/30 hover:border-cyan-400 transition-colors cursor-pointer">
+            <Card className="bg-slate-800 border-cyan-500/30 hover:border-cyan-400 transition-colors">
               <CardContent className="p-4">
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 mb-3">
                   <Search className="w-6 h-6 text-cyan-400" />
                   <div>
                     <h3 className="font-medium text-cyan-300">Quick Search</h3>
                     <p className="text-sm text-slate-400">Search the web instantly</p>
                   </div>
                 </div>
+                <div className="flex space-x-2">
+                  <Input
+                    placeholder="Enter search query..."
+                    value={quickSearchQuery}
+                    onChange={(e) => setQuickSearchQuery(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleQuickSearch();
+                      }
+                    }}
+                    className="flex-1 bg-slate-700 border-cyan-500/50 text-white placeholder-slate-400 focus:border-cyan-400"
+                    aria-label="Quick search input"
+                  />
+                  <Button
+                    onClick={handleQuickSearch}
+                    size="sm"
+                    className="bg-cyan-600 hover:bg-cyan-700"
+                    aria-label="Execute quick search"
+                  >
+                    <Search className="w-4 h-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-slate-800 border-cyan-500/30 hover:border-cyan-400 transition-colors cursor-pointer">
+            <Card 
+              className="bg-slate-800 border-cyan-500/30 hover:border-cyan-400 transition-colors cursor-pointer"
+              onClick={handleHelpAndCommands}
+              role="button"
+              tabIndex={0}
+              aria-label="Get help and learn voice commands"
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  handleHelpAndCommands();
+                }
+              }}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center space-x-3">
                   <FileText className="w-6 h-6 text-cyan-400" />
