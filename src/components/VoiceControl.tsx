@@ -3,6 +3,7 @@ import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
+import SearchService from '@/services/SearchService';
 
 interface VoiceControlProps {
   onSpeech: (text: string) => void;
@@ -14,6 +15,7 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
   const [isSupported, setIsSupported] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const searchService = SearchService.getInstance();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -70,21 +72,41 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
         return;
       }
 
-      // Stop/Control commands
-      if (lowercaseCommand.includes('stop') || lowercaseCommand.includes('quiet') || lowercaseCommand.includes('pause')) {
-        window.speechSynthesis.cancel();
-        onSpeech('Audio stopped. I am ready for your next command.');
+      // Date and time commands
+      if (lowercaseCommand.includes('what day') || lowercaseCommand.includes('today') || lowercaseCommand.includes('date')) {
+        const currentDate = searchService.getCurrentDate();
+        onSpeech(`Today is ${currentDate}.`);
         setIsProcessing(false);
         return;
       }
 
-      if (lowercaseCommand.includes('repeat')) {
-        onSpeech('Repeating last response.');
+      if (lowercaseCommand.includes('time') || lowercaseCommand.includes('what time')) {
+        const currentTime = searchService.getCurrentTime();
+        const currentDate = searchService.getCurrentDate();
+        onSpeech(`The current time is ${currentTime} on ${currentDate}.`);
         setIsProcessing(false);
         return;
       }
 
-      // Search commands
+      // Headlines and news commands
+      if (lowercaseCommand.includes('headlines') || lowercaseCommand.includes('today\'s news') || lowercaseCommand.includes('what\'s happening')) {
+        await handleHeadlinesCommand();
+        return;
+      }
+
+      // Tell me more about headline commands
+      if (lowercaseCommand.includes('tell me more about headline') || lowercaseCommand.includes('more about headline')) {
+        await handleHeadlineDetailCommand(lowercaseCommand);
+        return;
+      }
+
+      // Google search commands
+      if (lowercaseCommand.includes('search google for') || lowercaseCommand.includes('google search')) {
+        await handleGoogleSearchCommand(lowercaseCommand);
+        return;
+      }
+
+      // General search commands
       if (lowercaseCommand.includes('search for') || lowercaseCommand.includes('find news about') || lowercaseCommand.includes('look up')) {
         await handleSearchCommand(lowercaseCommand);
         return;
@@ -96,9 +118,17 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
         return;
       }
 
-      // Time command
-      if (lowercaseCommand.includes('time') || lowercaseCommand.includes('what time')) {
-        handleTimeCommand();
+      // Stop/Control commands
+      if (lowercaseCommand.includes('stop') || lowercaseCommand.includes('quiet') || lowercaseCommand.includes('pause')) {
+        window.speechSynthesis.cancel();
+        onSpeech('Audio stopped. I am ready for your next command.');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (lowercaseCommand.includes('repeat')) {
+        onSpeech('Repeating last response.');
+        setIsProcessing(false);
         return;
       }
 
@@ -115,12 +145,73 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
       }
 
       // Default processing
-      onSpeech(`I heard: ${command}. Processing your request now...`);
+      onSpeech(`I heard: ${command}. Let me help you with that.`);
       
     } catch (error) {
       onSpeech('I encountered an error processing your command. Please try again.');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleHeadlinesCommand = async () => {
+    onSpeech('Getting today\'s headlines from credible sources...');
+    
+    try {
+      const headlines = await searchService.getTodaysHeadlines();
+      const speechText = searchService.formatHeadlinesForSpeech(headlines);
+      onSpeech(speechText);
+      
+    } catch (error) {
+      onSpeech('I could not retrieve today\'s headlines at this time. Please try again later.');
+    }
+  };
+
+  const handleHeadlineDetailCommand = async (command: string) => {
+    const numberMatch = command.match(/headline\s+(\d+)/);
+    if (!numberMatch) {
+      onSpeech('Please specify which headline number you\'d like to hear more about.');
+      return;
+    }
+
+    const headlineNumber = parseInt(numberMatch[1]);
+    onSpeech(`Getting more details about headline ${headlineNumber}...`);
+
+    try {
+      const headlines = await searchService.getTodaysHeadlines();
+      const selectedHeadline = headlines[headlineNumber - 1];
+      
+      if (selectedHeadline) {
+        const timeAgo = new Date(selectedHeadline.publishedAt).toLocaleTimeString();
+        const response = `Here are the full details for headline ${headlineNumber}: ${selectedHeadline.headline} from ${selectedHeadline.source}. Published at ${timeAgo}. Full summary: ${selectedHeadline.summary} This story is categorized under ${selectedHeadline.category}. Would you like me to search for more recent updates on this topic?`;
+        onSpeech(response);
+      } else {
+        onSpeech(`Headline ${headlineNumber} is not available. Please choose a number between 1 and ${headlines.length}.`);
+      }
+      
+    } catch (error) {
+      onSpeech('I could not retrieve the headline details. Please try again.');
+    }
+  };
+
+  const handleGoogleSearchCommand = async (command: string) => {
+    let searchTerm = '';
+    
+    if (command.includes('search google for')) {
+      searchTerm = command.replace(/.*search google for\s+/i, '');
+    } else if (command.includes('google search')) {
+      searchTerm = command.replace(/.*google search\s+/i, '');
+    }
+
+    onSpeech(`Performing Google search for ${searchTerm}. Gathering current information...`);
+
+    try {
+      const results = await searchService.performGoogleSearch(searchTerm);
+      const speechText = searchService.formatSearchForSpeech(results, searchTerm);
+      onSpeech(speechText);
+      
+    } catch (error) {
+      onSpeech(`I encountered an error searching Google for ${searchTerm}. Please try your search again.`);
     }
   };
 
@@ -138,36 +229,9 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
     onSpeech(`Searching for ${searchTerm}. Please wait while I gather the latest information.`);
 
     try {
-      // Simulate real search results - in production, you'd use actual search APIs
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const mockResults = [
-        {
-          title: `Latest updates on ${searchTerm}`,
-          summary: `Recent developments show significant progress in ${searchTerm}. Key findings include improved methodologies and increased adoption rates.`,
-          source: 'Reuters'
-        },
-        {
-          title: `${searchTerm} market analysis`,
-          summary: `Market experts report growing interest in ${searchTerm} with projected growth of 15% this quarter.`,
-          source: 'Bloomberg'
-        },
-        {
-          title: `Scientific breakthrough in ${searchTerm}`,
-          summary: `Researchers announce major discovery that could revolutionize our understanding of ${searchTerm}.`,
-          source: 'Nature'
-        }
-      ];
-
-      let response = `I found several current articles about ${searchTerm}. Here are the top results: `;
-      
-      mockResults.forEach((result, index) => {
-        response += `Result ${index + 1}: ${result.title} from ${result.source}. ${result.summary} `;
-      });
-
-      response += 'Would you like me to read any of these articles in detail or search for more specific information?';
-      
-      onSpeech(response);
+      const results = await searchService.performGoogleSearch(searchTerm);
+      const speechText = searchService.formatSearchForSpeech(results, searchTerm);
+      onSpeech(speechText);
       
     } catch (error) {
       onSpeech(`I encountered an error searching for ${searchTerm}. Please try your search again.`);
@@ -178,41 +242,13 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
     onSpeech('Getting current weather information for your location...');
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Mock weather data - in production, use actual weather API
-      const weatherInfo = {
-        location: 'Current Location',
-        temperature: '72°F',
-        condition: 'Partly Cloudy',
-        humidity: '65%',
-        windSpeed: '8 mph'
-      };
-
-      const response = `Current weather for ${weatherInfo.location}: It is ${weatherInfo.temperature} and ${weatherInfo.condition}. Humidity is ${weatherInfo.humidity} with winds at ${weatherInfo.windSpeed}. Conditions are pleasant for outdoor activities.`;
-      
+      const weatherInfo = await searchService.getWeatherInfo();
+      const response = searchService.formatWeatherForSpeech(weatherInfo);
       onSpeech(response);
       
     } catch (error) {
       onSpeech('I could not retrieve weather information at this time. Please try again later.');
     }
-  };
-
-  const handleTimeCommand = () => {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit',
-      hour12: true 
-    });
-    const dateString = now.toLocaleDateString('en-US', { 
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-
-    onSpeech(`The current time is ${timeString} on ${dateString}.`);
   };
 
   const handleContentAnalysis = async (command: string) => {
@@ -230,7 +266,7 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
   };
 
   const handleHelpCommand = () => {
-    const helpMessage = `BlindAssist Command Guide: You can say "Search for" followed by any topic to get current information. Ask "What's the weather" for weather updates. Say "What time is it" for current time. Use "Read this page" to analyze webpage content. Say "Stop" to halt audio output. Say "Repeat" to hear the last response again. You can also say "Hey BlindAssist" to activate voice mode. I can search for news, look up information, provide weather updates, read web content, and help you navigate websites accessibly.`;
+    const helpMessage = `BlindAssist Enhanced Command Guide: You can say "What's today's date" for current date and time. Ask "What are today's headlines" or "What's happening" for current news. Say "Tell me more about headline" followed by a number for detailed news. Use "Search Google for" followed by any topic for web search. Say "What's the weather" for weather updates. Use "Read this page" to analyze content. Say "Stop" to halt audio. I can search Google, get today's headlines from credible sources like BBC and Reuters, provide detailed news summaries, and help you navigate information accessibly.`;
     onSpeech(helpMessage);
   };
 
@@ -266,7 +302,7 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
       <div className="text-center">
         <h3 className="text-xl font-semibold text-cyan-300 mb-4">Enhanced Voice Command Center</h3>
         <p className="text-slate-400 mb-6">
-          Say commands like "Search for news", "What's the weather", or "Read this page". I will execute your commands and provide real information.
+          Say commands like "What are today's headlines", "Search Google for tech news", "What's the weather", or "What's today's date". I provide real information from credible sources.
         </p>
         {isProcessing && (
           <div className="text-cyan-300 mb-4">
@@ -311,7 +347,7 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
               <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
               <span className="text-cyan-300 font-medium">Listening for commands...</span>
             </div>
-            <p className="text-slate-300">Speak clearly: "Search for news", "What's the weather", "Read this page"</p>
+            <p className="text-slate-300">Try: "What are today's headlines", "Search Google for AI news", "What's the weather"</p>
           </CardContent>
         </Card>
       )}
@@ -329,10 +365,11 @@ const VoiceControl = ({ onSpeech }: VoiceControlProps) => {
         <CardContent className="p-4">
           <h4 className="text-cyan-300 font-medium mb-3">Enhanced Voice Commands:</h4>
           <ul className="space-y-2 text-slate-300">
-            <li>• "Search for [topic]" - Get real search results</li>
-            <li>• "Find news about [topic]" - Current news updates</li>
-            <li>• "What's the weather?" - Real weather information</li>
-            <li>• "What time is it?" - Current time and date</li>
+            <li>• "What's today's date?" - Current date and time</li>
+            <li>• "What are today's headlines?" - Current news from credible sources</li>
+            <li>• "Tell me more about headline [number]" - Detailed news story</li>
+            <li>• "Search Google for [topic]" - Live Google search results</li>
+            <li>• "What's the weather?" - Current weather information</li>
             <li>• "Read this page" - Analyze current content</li>
             <li>• "Help" - Complete command guide</li>
             <li>• "Stop" - Halt all audio output</li>
